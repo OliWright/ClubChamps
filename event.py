@@ -20,8 +20,8 @@
 # with this program (file LICENSE); if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-
 import logging
+import math
 
 # This order matches the ASA 'stroke' code used in their swimming.org
 # minus 1 (this array starts from 0)

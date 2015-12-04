@@ -42,21 +42,24 @@ swim_list_file = open( folder + 'SwimList.txt', 'r' )
 entry_list_file = open( folder + 'EntryList.txt', 'r' )
 consideration_times_file = open( folder + 'ConsiderationTimes.txt', 'w' )
 consideration_times_verbose_file = open( folder + 'ConsiderationTimesVerbose.txt', 'w' )
-consideration_times_html_index_file = open( folder + 'consideration_times_index.html', 'w' )
-missing_entries_file = open( folder + 'MissingEntries.txt', 'w' )
+consideration_times_html_index_file = open( folder + 'consideration_times_2015_index.html', 'w' )
+missing_entries_file = open( folder + 'MissingEntriesForConsideration.txt', 'w' )
+club_champs_start_date_str = '12/9/2015'
 club_champs_date_str = '19/9/2015'
 maximum_age = 21 # Any swimmer older will be excluded
 
+club_champs_start_date = helpers.ParseDate_dmY( club_champs_start_date_str )
 club_champs_date = helpers.ParseDate_dmY( club_champs_date_str )
 consideration_date = datetime.date( club_champs_date.year - 1, club_champs_date.month, club_champs_date.day )
 consideration_date_str = consideration_date.strftime( '%d/%m/%Y' )
 num_events = len( short_course_events )
 
 class ConsiderationTime():
-  def __init__(self, event, time, reason):
+  def __init__(self, event, time, reason, is_nt):
     self.event = event
     self.time = time
     self.reason = reason
+    self.is_nt = is_nt
 
 class SwimmerTimes():
   def __init__(self, swimmer, full_name):
@@ -105,6 +108,8 @@ def process_swimmer( swimmer, swims ):
     pb_swim = None
     interp_swim = None
     for swim in event_swims:
+      if swim.date >= club_champs_start_date:
+        continue # Disregard this for any PB consideration
       if swim.date <= consideration_date:
         # This swim is earlier than the consideration date.
         # Is it a PB?
@@ -123,18 +128,18 @@ def process_swimmer( swimmer, swims ):
     if pb_swim is None:
       nt_time = get_nt_consideration_time( i, swimmer.is_male, age )
       if nt_time is None:
-        consideration_time = ConsiderationTime( event, None, 'No PB as of ' + consideration_date_str + ', and no time specified in the NT table' )
+        consideration_time = ConsiderationTime( event, None, 'No PB as of ' + consideration_date_str + ', and no time specified in the NT table', True )
       else:
-        consideration_time = ConsiderationTime( event, nt_time, 'No PB as of ' + consideration_date_str + ', so consideration time taken from the NT table' )
+        consideration_time = ConsiderationTime( event, nt_time, 'No PB as of ' + consideration_date_str + ', so consideration time taken from the NT table', True )
     else:
       if interp_swim is not None:
         # Interpolate the PB between the pre-consideration-date PB and the first PB
         # race after the consideration date
         interpolation_val = float( (consideration_date - pb_swim.date).days ) / float( (interp_swim.date - pb_swim.date).days )
         consideration_race_time = (interp_swim.short_course_race_time * interpolation_val) + (pb_swim.short_course_race_time * (1 - interpolation_val))
-        consideration_time = ConsiderationTime( event, consideration_race_time, 'Interpolated between ' + pb_swim.meet + ' ' + pb_swim.date.strftime( "%d/%m/%Y" ) + ' (' + str( RaceTime( pb_swim.short_course_race_time ) ) + ') and ' + interp_swim.meet + ' ' + interp_swim.date.strftime( "%d/%m/%Y" )+ ' (' + str( RaceTime( interp_swim.short_course_race_time ) ) + ')' )
+        consideration_time = ConsiderationTime( event, consideration_race_time, 'Interpolated between ' + pb_swim.meet + ' ' + pb_swim.date.strftime( "%d/%m/%Y" ) + ' (' + str( RaceTime( pb_swim.short_course_race_time ) ) + ') and ' + interp_swim.meet + ' ' + interp_swim.date.strftime( "%d/%m/%Y" )+ ' (' + str( RaceTime( interp_swim.short_course_race_time ) ) + ')', False )
       else:
-        consideration_time = ConsiderationTime( event, pb_swim.short_course_race_time, 'From ' + pb_swim.meet + ' on ' + pb_swim.date.strftime( "%d/%m/%Y" ) )
+        consideration_time = ConsiderationTime( event, pb_swim.short_course_race_time, 'From ' + pb_swim.meet + ' on ' + pb_swim.date.strftime( "%d/%m/%Y" ), False )
     swimmer_times.consideration_times.append( consideration_time )
 
 # Read the entry list    
@@ -185,7 +190,10 @@ for swimmer_times in all_swimmer_times:
   consideration_times_file.write( str( swimmer ) + '\n' )
   for consideration_time in swimmer_times.consideration_times:
     if consideration_time.time is not None:
-      consideration_times_file.write( consideration_time.event.short_name_without_course() + '|' + str( RaceTime( consideration_time.time ) ) + '\n' )
+      is_pb_str = 'pb'
+      if consideration_time.is_nt:
+        is_pb_str = 'nt'
+      consideration_times_file.write( consideration_time.event.short_name_without_course() + '|' + str( RaceTime( consideration_time.time ) ) + '|' + is_pb_str + '\n' )
   first = False
 consideration_times_file.close()    
 
@@ -208,21 +216,37 @@ _HTML_TOP = """<!DOCTYPE html>
 <head>
 	<title>Club Champs 2015 Consideration Times</title>
 </head>
-<!-- Prevent phones and tablets from pretending to be higher resolution than they actually are -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<body><h1>Winsford ASC Club Championships 2015 Scoring Consideration Times</h1>"""
+<body>
+<h1>Winsford ASC Club Championships 2015 Scoring Consideration Times</h1>
+"""
+_HTML_DESCRIPTION = """<p>The scoring for Best Boy and Best Girl for the Club Champs will be done slightly differently this year. We want to encourage swimmers to improve themselves, so we're basing the scores on how much they've improved over the year.</p>
+<p>To do this we take each swimmers' PB in each event from one year before the date of the Club Champs as a consideration time. Points are then awarded according to how much they improve on that time. The time needed for each point is set by the coaches, and varies with age and event. This is because a 10 year old might knock 20s off their 200 Breast time, whereas it's very difficult for a 16 year old to knock 1s off their 50 free time for example.</p>
+<p>Consideration times are calculated by looking for PBs around 19/9/2014. We find their PB race before this date, then we find their first PB race after this date, then we interpolate to get a fair PB for 19/9/2014. This is to make it as fair as possible, to eliminate any effect of 'when' the PB was set.</p>
+<p>Where there is no PB set after 19/9/2014, we take the PB before that date. Where there is no PB before that date, we take a consideration time from a table of times defined by the coaches, based on the North Mids qualifying times for 2014. In those cases, the swimmer will not be eligible for a maximum score tally because we're not able to measure an improvement.</p>
+<p>Below is a list of links to each swimmer's consideration times and how they have been calculated.</p>
+<p>There are some swimmers missing from this list. Possible causes are...</p>
+<ul>
+  <li>Swimmer is listed as Cat 1 on the <a href="https://www.swimmingresults.org/membershipcheck/">ASA database</a>.</li>
+  <li>Swimmer has recently switched to Cat 2.</li>
+  <li>Somebody pressed the wrong button.</li>
+</ul>
+<p>We will try to make sure that all swimmers get correct consideration times.  Swimmers that compete in the Club Champs but are not listed here, will be given consideration times by the coaches.</p>
+<p>If you have any questions, or if a swimmer is not listed but <em>does</em> have PBs from before 19/9/2014, please contact <a href="mailto:ol.wright@gmail.com?Subject=Club%20Champs%20Scoring%20Query">Oli Wright</a>.</p>
+"""
 
 _HTML_BOTTOM = """</body></html>"""
 
 consideration_times_html_index_file.write( _HTML_TOP )
+consideration_times_html_index_file.write( _HTML_DESCRIPTION )
+consideration_times_html_index_file.write( '<ul>' )
 for swimmer_times in all_swimmer_times:
   swimmer = swimmer_times.swimmer
   age = helpers.CalcAge( swimmer.date_of_birth, club_champs_date )
   
-  html = '<a href="'
-  page_name = 'individuals/' + str( swimmer.asa_number ) + '.html'
+  html = '<li><a href="'
+  page_name = 'individual_consideration_times_2015/' + str( swimmer.asa_number ) + '.html'
   html += page_name
-  html += '">' + swimmer.first_name + ' ' + swimmer.last_name + '</a><br/>'
+  html += '">' + swimmer_times.full_name + '</a></li>'
   consideration_times_html_index_file.write( html + '\n' )
   
   consideration_times_html_file = open( folder + page_name, 'w' )
@@ -232,13 +256,14 @@ for swimmer_times in all_swimmer_times:
   consideration_times_html_file.write( html )
   for consideration_time in swimmer_times.consideration_times:
     if consideration_time.time is not None:
-      html = '<p>' + consideration_time.event.short_name_without_course() + ': ' + str( RaceTime( consideration_time.time ) ) + '<br/>'
-      html += consideration_time.reason + '</p>'
+      html = '<h3>' + consideration_time.event.short_name_without_course() + ': ' + str( RaceTime( consideration_time.time ) ) + '</h3>'
+      html += '<p>' + consideration_time.reason + '</p>'
       consideration_times_html_file.write( html )
       
   consideration_times_html_file.write( _HTML_BOTTOM )
   consideration_times_html_file.close()
   
+consideration_times_html_index_file.write( '</ul>' )
 consideration_times_html_index_file.write( _HTML_BOTTOM )
 consideration_times_html_index_file.close()
 
